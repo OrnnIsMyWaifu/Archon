@@ -1465,6 +1465,7 @@ export interface paths {
       parameters: {
         query?: {
           cwd?: string;
+          runId?: string;
         };
         header?: never;
         path: {
@@ -2348,6 +2349,7 @@ export interface components {
       worktree?: {
         enabled?: boolean;
       };
+      mutates_checkout?: boolean;
       tags?: string[];
       nodes: components['schemas']['DagNode'][];
     };

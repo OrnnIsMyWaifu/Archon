@@ -343,13 +343,17 @@ export async function dispatchBackgroundWorkflow(
   const workflowDeps = createWorkflowDeps();
   let preCreatedRun: Awaited<ReturnType<typeof workflowDeps.store.createWorkflowRun>> | undefined;
   try {
+    // Snapshot the parsed workflow definition into metadata so the UI can render
+    // the graph even after the source YAML is deleted (e.g. worktree cleanup).
+    const preRunMetadata: Record<string, unknown> = { workflow_definition: workflow };
+    if (ctx.issueContext) preRunMetadata.github_context = ctx.issueContext;
     preCreatedRun = await workflowDeps.store.createWorkflowRun({
       workflow_name: workflow.name,
       conversation_id: workerConv.id,
       codebase_id: ctx.codebaseId,
       user_message: ctx.originalMessage,
       working_path: workerCwd,
-      metadata: ctx.issueContext ? { github_context: ctx.issueContext } : {},
+      metadata: preRunMetadata,
       parent_conversation_id: ctx.conversationDbId,
     });
   } catch (error) {

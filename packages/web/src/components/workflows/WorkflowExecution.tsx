@@ -279,14 +279,19 @@ export function WorkflowExecution({ runId }: WorkflowExecutionProps): React.Reac
   }, [codebaseId]);
 
   // Fetch workflow definition for DAG topology (depends_on edges).
-  // Only gated on workflowName — codebaseCwd is optional; when absent the server tries the
-  // first registered codebase before falling back to bundled defaults (handles CLI runs and
-  // "No project" web runs).
-  const { data: workflowDef } = useQuery({
-    queryKey: ['workflowDefinition', initialData?.workflowName, codebaseCwd],
-    queryFn: () => getWorkflow(initialData?.workflowName ?? '', codebaseCwd ?? undefined),
+  // Pass runId so the server can use the run's working_path when the YAML lives in a
+  // worktree or a folder that isn't a registered codebase — otherwise the lookup 404s
+  // and the graph view is stuck on "Loading graph..." forever.
+  const {
+    data: workflowDef,
+    isLoading: workflowDefLoading,
+    isError: workflowDefError,
+  } = useQuery({
+    queryKey: ['workflowDefinition', initialData?.workflowName, codebaseCwd, runId],
+    queryFn: () => getWorkflow(initialData?.workflowName ?? '', codebaseCwd ?? undefined, runId),
     enabled: !!initialData?.workflowName,
     staleTime: Infinity,
+    retry: false,
   });
   const dagDefinitionNodes = workflowDef?.workflow?.nodes ?? null;
   // Use workflow definition when available, fall back to dagNodes from run state.
@@ -552,10 +557,28 @@ export function WorkflowExecution({ runId }: WorkflowExecutionProps): React.Reac
                 selectedNodeId={selectedDagNode}
                 onNodeClick={handleNodeClick}
               />
-            ) : (
+            ) : workflowDefLoading ? (
               <div className="flex items-center justify-center h-full text-text-secondary">
                 <span className="inline-block h-5 w-5 animate-spin rounded-full border-2 border-accent border-t-transparent mr-2" />
                 Loading graph...
+              </div>
+            ) : (
+              <div className="flex flex-col items-center justify-center h-full text-text-secondary text-sm gap-1 px-6 text-center">
+                <div>Graph unavailable for this run.</div>
+                <div className="text-xs text-text-tertiary">
+                  {workflowDefError
+                    ? `Workflow definition "${initialData?.workflowName ?? ''}" was not found in the run's working path or registered codebases.`
+                    : 'No workflow definition was loaded for this run.'}
+                </div>
+                <button
+                  type="button"
+                  onClick={(): void => {
+                    setActiveView('logs');
+                  }}
+                  className="mt-2 text-xs text-accent hover:underline"
+                >
+                  Switch to Logs view
+                </button>
               </div>
             )}
           </ResizablePanel>

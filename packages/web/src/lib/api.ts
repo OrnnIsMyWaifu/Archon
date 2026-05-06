@@ -416,8 +416,16 @@ export interface GetWorkflowResponse {
   source: WorkflowSource;
 }
 
-export async function getWorkflow(name: string, cwd?: string): Promise<GetWorkflowResponse> {
-  const params = cwd ? `?cwd=${encodeURIComponent(cwd)}` : '';
+export async function getWorkflow(
+  name: string,
+  cwd?: string,
+  runId?: string
+): Promise<GetWorkflowResponse> {
+  const search = new URLSearchParams();
+  if (cwd) search.set('cwd', cwd);
+  if (runId) search.set('runId', runId);
+  const qs = search.toString();
+  const params = qs ? `?${qs}` : '';
   return fetchJSON(`/api/workflows/${encodeURIComponent(name)}${params}`);
 }
 

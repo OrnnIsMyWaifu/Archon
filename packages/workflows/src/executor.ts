@@ -443,13 +443,18 @@ export async function executeWorkflow(
   if (!workflowRun) {
     // Create workflow run record
     try {
+      // Snapshot the parsed workflow definition into metadata so the UI can
+      // render the graph even after the source YAML is deleted (e.g. worktree
+      // cleanup). The definition is already Zod-validated and JSON-safe.
+      const runMetadata: Record<string, unknown> = { workflow_definition: workflow };
+      if (issueContext) runMetadata.github_context = issueContext;
       workflowRun = await deps.store.createWorkflowRun({
         workflow_name: workflow.name,
         conversation_id: conversationDbId,
         codebase_id: codebaseId,
         user_message: userMessage,
         working_path: cwd,
-        metadata: issueContext ? { github_context: issueContext } : {},
+        metadata: runMetadata,
         parent_conversation_id: parentConversationId,
       });
     } catch (error) {

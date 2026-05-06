@@ -155,6 +155,10 @@ function jsonError(description: string): {
 }
 
 const cwdQuerySchema = z.object({ cwd: z.string().optional() });
+const getWorkflowQuerySchema = z.object({
+  cwd: z.string().optional(),
+  runId: z.string().optional(),
+});
 
 const getWorkflowsRoute = createRoute({
   method: 'get',
@@ -200,7 +204,7 @@ const getWorkflowRoute = createRoute({
   summary: 'Fetch a single workflow definition',
   request: {
     params: z.object({ name: z.string() }),
-    query: cwdQuerySchema,
+    query: getWorkflowQuerySchema,
   },
   responses: {
     200: {
@@ -2225,6 +2229,56 @@ export function registerApiRoutes(
 
     try {
       const cwd = c.req.query('cwd');
+      const runId = c.req.query('runId');
+
+      // When a runId is provided, the run is the authoritative source for this lookup.
+      // Try (1) the workflow definition snapshot stored on the run row, then (2) the
+      // run's working_path. Both are server-trusted (written by the executor) so they
+      // bypass validateCwd. We do this regardless of whether cwd is also supplied —
+      // the React Query in WorkflowExecution.tsx fires twice (once before codebaseCwd
+      // resolves, once after), and gating on `!cwd` would cause the second pass to
+      // fall through to a stale codebase lookup and 404 over the good answer.
+      if (runId) {
+        const run = await workflowDb.getWorkflowRun(runId);
+        const snapshot = (run?.metadata as { workflow_definition?: unknown } | undefined)
+          ?.workflow_definition;
+        if (snapshot) {
+          // Round-trip the snapshot through parseWorkflow so a stale/incompatible
+          // shape can't crash the response — we'd rather fall through to disk.
+          const snapshotResult = parseWorkflow(Bun.YAML.stringify(snapshot), `${name}.yaml`);
+          if (!snapshotResult.error) {
+            return c.json({
+              workflow: snapshotResult.workflow,
+              filename: `${name}.yaml`,
+              source: 'project' as WorkflowSource,
+            });
+          }
+          getLog().warn(
+            { runId, name, err: snapshotResult.error.error },
+            'workflow.snapshot_parse_failed'
+          );
+        }
+        if (run?.working_path) {
+          const [workflowFolder] = getWorkflowFolderSearchPaths();
+          const wtFilePath = join(run.working_path, workflowFolder, `${name}.yaml`);
+          try {
+            const content = await readFile(wtFilePath, 'utf-8');
+            const wtResult = parseWorkflow(content, `${name}.yaml`);
+            if (!wtResult.error) {
+              return c.json({
+                workflow: wtResult.workflow,
+                filename: `${name}.yaml`,
+                source: 'project' as WorkflowSource,
+              });
+            }
+          } catch (err) {
+            if ((err as NodeJS.ErrnoException).code !== 'ENOENT') {
+              getLog().error({ err, runId, name }, 'workflow.fetch_from_worktree_failed');
+            }
+          }
+        }
+      }
+
       let workingDir = cwd;
       if (cwd) {
         if (!(await validateCwd(cwd))) {
